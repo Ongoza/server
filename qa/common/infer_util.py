@@ -104,6 +104,8 @@ def infer_exact(tester,
                 outputs=("OUTPUT0", "OUTPUT1"),
                 use_http=True,
                 use_grpc=True,
+                use_in_process=False,
+                in_process_filepath="",
                 use_http_json_tensors=True,
                 skip_request_id_check=False,
                 use_streaming=True,
@@ -119,7 +121,7 @@ def infer_exact(tester,
         import tritonclient.utils.shared_memory as shm
         import tritonclient.utils.cuda_shared_memory as cudashm
 
-    tester.assertTrue(use_http or use_grpc or use_streaming)
+    tester.assertTrue(use_http or use_grpc or use_streaming or use_in_process)
     # configs [ url, protocol, async stream, binary data ]
     configs = []
     if use_http:
@@ -134,6 +136,9 @@ def infer_exact(tester,
         configs.append((f"{_tritonserver_ipaddr}:8001", "grpc", False, False))
     if use_streaming:
         configs.append((f"{_tritonserver_ipaddr}:8001", "grpc", True, False))
+    if use_in_process:
+        from os.path import exists
+        tester.assertTrue(exists(in_process_filepath))
 
     # outputs are sum and difference of inputs so set max input
     # values so that they will not overflow the output. This
@@ -290,6 +295,42 @@ def infer_exact(tester,
         model_version = ""
 
     # Run inference and check results for each config
+    if not use_in_process:
+        inferAndCheckResults(
+            tester, configs, pf, batch_size, model_version, input_dtype,
+            output0_dtype, output1_dtype, INPUT0, INPUT1, OUTPUT0, OUTPUT1,
+            tensor_shape, input0_array, input1_array, output0_array,
+            output1_array, output0_raw, output1_raw, outputs,
+            precreated_shm_regions, input0_list_tmp, input1_list_tmp,
+            shm_region_names, input0_byte_size, input1_byte_size,
+            output0_byte_size, output1_byte_size, use_system_shared_memory,
+            use_cuda_shared_memory, skip_request_id_check)
+    else
+        np.savetxt(in_process_filepath+"/input.txt", )
+        np.savetxt(in_process_filepath+"/output.txt", )
+
+
+def inferAndCheckResults(tester, configs, pf, batch_size, model_version,
+                         input_dtype, output0_dtype, output1_dtype, INPUT0,
+                         INPUT1, OUTPUT0, OUTPUT1, tensor_shape, input0_array,
+                         input1_array, output0_array, output1_array,
+                         output0_raw, output1_raw, outputs,
+                         precreated_shm_regions, input0_list_tmp,
+                         input1_list_tmp, shm_region_names, input0_byte_size,
+                         input1_byte_size, output0_byte_size, output1_byte_size,
+                         use_system_shared_memory, use_cuda_shared_memory,
+                         skip_request_id_check):
+    # Lazy shm imports...
+    if use_system_shared_memory or use_cuda_shared_memory:
+        import tritonclient.utils.shared_memory as shm
+        import tritonclient.utils.cuda_shared_memory as cudashm
+    num_classes = 3
+
+    # Create system/cuda shared memory regions if needed
+    shm_regions, shm_handles = su.create_set_shm_regions(
+        input0_list_tmp, input1_list_tmp, output0_byte_size, output1_byte_size,
+        outputs, shm_region_names, precreated_shm_regions,
+        use_system_shared_memory, use_cuda_shared_memory)
     for config in configs:
         model_name = tu.get_model_name(pf, input_dtype, output0_dtype,
                                        output1_dtype)
